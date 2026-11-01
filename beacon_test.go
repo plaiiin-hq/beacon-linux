@@ -507,6 +507,9 @@ func TestSecurityUpdatesAreWhatTheSecurityListOffersBeyondWhatIsInstalled(t *tes
 	if len(pk) != 1 || pk[0]["name"] != "openssl" || pk[0]["available"] != "3.0.13-0ubuntu3.6" {
 		t.Errorf("the newest security version wins: %v", pk)
 	}
+	if since, _ := r["reboot_required_since"].(int64); since == 0 || since > time.Now().Unix() {
+		t.Errorf("a pending reboot says since when the machine asked: %v", r)
+	}
 	if r["pending"] != 29 || r["reboot_required"] != true || r["lists_checked_at"] == nil {
 		t.Errorf("pending, reboot and freshness are reported: %v", r)
 	}

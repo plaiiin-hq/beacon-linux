@@ -79,8 +79,11 @@ func updates(root string) (any, bool) {
 			out["pending"] = n
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "var/run/reboot-required")); err == nil {
+	if st, err := os.Stat(filepath.Join(root, "var/run/reboot-required")); err == nil {
 		out["reboot_required"] = true
+		// When the machine first asked: the file's own age (it is touched again when another package asks, so this is the latest
+		// request, never earlier than the truth). Without it the server could only count from when it first heard of the flag.
+		out["reboot_required_since"] = st.ModTime().Unix()
 		if b, err := os.ReadFile(filepath.Join(root, "var/run/reboot-required.pkgs")); err == nil {
 			var names []string
 			seen := map[string]bool{}
