@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"path/filepath"
 	"time"
 )
 
@@ -55,12 +56,21 @@ func run(cfg Config, dir string, c *Client) {
 		changed := false
 		if len(cfg.Fields) > 0 {
 			body, _ := json.Marshal(Report(cfg.Root, cfg.Fields))
+			var sentTo []string
 			for _, s := range servers {
 				if isDue(st[s.URL], c.Now(), cfg.IntervalSeconds, startup) {
 					st[s.URL] = sendOnce(c, key, s, body, cfg.IntervalSeconds, st[s.URL])
-					log.Printf("%s: %s", s.Name, st[s.URL].LastResult)
+					log.Printf("%s: %s (%d fields, %d bytes)", s.Name, st[s.URL].LastResult, len(cfg.Fields), len(body))
+					if st[s.URL].LastResult == "accepted" {
+						sentTo = append(sentTo, s.Name)
+					}
 					changed = true
 				}
+			}
+			// What left, exactly: `beacon last` shows it, so an admin can check the wire against the consent file.
+			if len(sentTo) > 0 {
+				_ = writeJSON(filepath.Join(dir, "last-report.json"), map[string]any{
+					"sent_at": c.Now().UTC().Format(time.RFC3339), "to": sentTo, "report": json.RawMessage(body)})
 			}
 		}
 		if changed {

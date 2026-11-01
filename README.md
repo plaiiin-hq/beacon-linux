@@ -14,9 +14,23 @@ no program, opens no port, and takes no instruction from a server. Design: `docs
 
 | | |
 |---|---|
-| consent | `/etc/beacon/beacon.json`, root's: `"fields"` (all off by default), `"interval_seconds"` (30..3600) |
+| consent | `/etc/beacon/beacon.json`, root's: `"fields"` (all off by default), `"interval_seconds"` (30..3600). Change it with `sudo beacon enable <field…\|all>` and `sudo beacon disable <field…\|all>`, or edit the file; a running service notices within seconds. |
 | state | `/var/lib/beacon`: the device key (0600) and the servers joined; the join secret is not kept |
-| check what is sent | `beacon dry-run` prints the exact report; `beacon fields` lists what can be read and from which file |
+| check what is sent | `beacon dry-run` prints the exact report; `beacon fields` lists what can be read, from which file, and which fields identify the machine; `sudo beacon last` prints the report that was last sent, and to whom |
+
+## What an admin controls
+
+| you want | do |
+|---|---|
+| nothing reported | the default; or `sudo beacon disable all`, or `sudo systemctl stop beacon` |
+| everything this version can report | `sudo beacon enable all` (written as an explicit list: fields a later version adds stay off until you switch them on) |
+| the kind of machine, not which one | `sudo beacon enable os_name os_version kernel memory_mb cpu` and leave the ones `beacon fields` marks "identifies this machine" off (host name, network addresses, package list) |
+| to see it before it goes | `beacon dry-run` |
+| to check afterwards | `sudo beacon last` |
+| only certain servers | `beacon join` adds one; `beacon leave <server>` removes it; each is pinned to its server's key |
+| to stop it for good | `sudo apt remove plaiiin-beacon` (or `dnf remove`); its state in `/var/lib/beacon` goes with `purge` |
+
+It never opens a port, never asks anyone for an update, and takes no instructions from a server.
 
 ## Install (package)
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -120,4 +121,88 @@ func LoadStatus(dir string) (map[string]Status, error) {
 
 func SaveStatus(dir string, s map[string]Status) error {
 	return writeJSON(filepath.Join(dir, "status.json"), s)
+}
+
+// SaveFields sets the "fields" list in the consent file and leaves everything else in it as it was (the interval, the
+// root, anything the admin added). It replaces the file in one step. Only root can do this: the file is root's, and the
+// service, which runs as its own user, can read it but never write it.
+func SaveFields(path string, fields []string) error {
+	known := map[string]bool{}
+	for _, f := range Fields {
+		known[f.ID] = true
+	}
+	for _, id := range fields {
+		if !known[id] {
+			return fmt.Errorf("unknown field %q (beacon fields lists them)", id)
+		}
+	}
+	raw := map[string]json.RawMessage{}
+	if b, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(b, &raw); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	sort.Strings(fields)
+	list, _ := json.Marshal(fields)
+	raw["fields"] = list
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return friendly(path, err)
+	}
+	return friendly(path, os.Rename(tmp, path))
+}
+
+func friendly(path string, err error) error {
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("cannot write %s: the consent file belongs to root, so run this with sudo", path)
+	}
+	return err
+}
+
+// Toggle returns the field list after switching ids on or off. "all" means every field this version knows; it is
+// written out as that explicit list, so a later version's new fields stay off until the admin switches them on.
+func Toggle(current, ids []string, on bool) ([]string, error) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		if id == "all" {
+			for _, f := range Fields {
+				want[f.ID] = true
+			}
+			continue
+		}
+		ok := false
+		for _, f := range Fields {
+			if f.ID == id {
+				ok = true
+			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("unknown field %q (beacon fields lists them, or use \"all\")", id)
+		}
+		want[id] = true
+	}
+	set := map[string]bool{}
+	for _, id := range current {
+		set[id] = true
+	}
+	for id := range want {
+		set[id] = on
+	}
+	var out []string
+	for id, v := range set {
+		if v {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

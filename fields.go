@@ -181,6 +181,10 @@ func dpkgPackages(root string) (any, bool) {
 	return out, true
 }
 
+// Identifying marks the fields that name this particular machine, not just its kind: a list shows them so an admin
+// can leave them off and still report the rest.
+var Identifying = map[string]bool{"hostname": true, "network": true, "packages": true, "model": true}
+
 // Fields is everything this reporter can read, in the order `beacon fields` lists it.
 var Fields = []Field{
 	{"os_name", "OS name", "/etc/os-release NAME", func(r string) (any, bool) { v, ok := osRelease(r)["PRETTY_NAME"]; return v, ok }},

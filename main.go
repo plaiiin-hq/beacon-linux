@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -16,6 +17,9 @@ import (
 const usage = `beacon: report this machine's facts to a plaiiin Status inventory
 
   beacon fields                         what can be reported, and what is switched on
+  beacon enable <field…|all>            switch fields on (root; "all" is every field this version has)
+  beacon disable <field…|all>           switch fields off ("disable all" stops reporting anything)
+  beacon last                           the exact report that was last sent, and to whom
   beacon dry-run                        the exact report that would be sent
   beacon join <join string> [--name N]  register with a server: its join string (Settings → Agents) or a
                                         plaiiin-infrastructure:// link from its Inventory page
@@ -51,6 +55,22 @@ func main() {
 	switch cmd {
 	case "fields":
 		listFields(cfg)
+	case "enable", "disable":
+		if fs.NArg() == 0 {
+			log.Fatalf("usage: beacon %s <field…|all>   (beacon fields lists them)", cmd)
+		}
+		next, err := Toggle(cfg.Fields, fs.Args(), cmd == "enable")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := SaveFields(*configPath, next); err != nil {
+			log.Fatal(err)
+		}
+		cfg.Fields = next
+		listFields(cfg)
+		fmt.Println("\nA running service picks this up within a few seconds.")
+	case "last":
+		showLast(*stateDir)
 	case "dry-run":
 		body, _ := json.MarshalIndent(Report(cfg.Root, cfg.Fields), "", "  ")
 		fmt.Println(string(body))
@@ -104,9 +124,13 @@ func listFields(cfg Config) {
 		if on[f.ID] {
 			mark = "ON "
 		}
-		fmt.Printf("%s  %-16s %-20s %s\n", mark, f.ID, f.Title, f.Source)
+		tag := ""
+		if Identifying[f.ID] {
+			tag = "  (identifies this machine)"
+		}
+		fmt.Printf("%s  %-16s %-20s %s%s\n", mark, f.ID, f.Title, f.Source, tag)
 	}
-	fmt.Printf("\nevery %d s; switch fields on in the consent file's \"fields\" list\n", cfg.IntervalSeconds)
+	fmt.Printf("\nevery %d s. Switch on: sudo beacon enable <field…|all>; off: sudo beacon disable <field…|all>\n", cfg.IntervalSeconds)
 }
 
 func join(cfg Config, dir, text, name string) {
@@ -197,4 +221,14 @@ func ago(t time.Time) string {
 		return "never"
 	}
 	return t.Local().Format(time.RFC3339)
+}
+
+// showLast prints the report that was last sent: the exact bytes, who got them and when. Run it as root (or the service
+// account): the state directory is private to the service.
+func showLast(dir string) {
+	b, err := os.ReadFile(filepath.Join(dir, "last-report.json"))
+	if err != nil {
+		log.Fatalf("nothing has been sent yet (%v)", err)
+	}
+	fmt.Println(string(b))
 }

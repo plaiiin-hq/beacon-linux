@@ -305,3 +305,51 @@ func TestAnInterfaceIsReportedOnlyWhenANetworkCanReachIt(t *testing.T) {
 		t.Fatal("an interface with only a link-local address is reported")
 	}
 }
+
+func TestEnableAndDisableKeepTheRestOfTheConsentFileAndAllIsExplicit(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "beacon.json")
+	write(t, dir, "beacon.json", `{"fields":["kernel"],"interval_seconds":120,"root":"/host"}`)
+
+	next, err := Toggle([]string{"kernel"}, []string{"os_name", "memory_mb"}, true)
+	if err != nil || len(next) != 3 {
+		t.Fatalf("%v %v", next, err)
+	}
+	if err := SaveFields(p, next); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := LoadConfig(p)
+	if c.IntervalSeconds != 120 || c.Root != "/host" || len(c.Fields) != 3 {
+		t.Fatalf("the rest of the file changed: %+v", c)
+	}
+
+	all, _ := Toggle(c.Fields, []string{"all"}, true)
+	if len(all) != len(Fields) {
+		t.Fatalf("all is %d of %d", len(all), len(Fields))
+	}
+	none, _ := Toggle(all, []string{"all"}, false)
+	if len(none) != 0 {
+		t.Fatalf("disable all left %v", none)
+	}
+	one, _ := Toggle(all, []string{"packages"}, false)
+	if len(one) != len(Fields)-1 {
+		t.Fatalf("disable one left %v", one)
+	}
+	if _, err := Toggle(nil, []string{"serial_number"}, true); err == nil {
+		t.Fatal("an unknown field is accepted")
+	}
+	if err := SaveFields(p, []string{"bogus"}); err == nil {
+		t.Fatal("an unknown field was saved")
+	}
+}
+
+func TestTheFieldsThatNameThisMachineAreMarked(t *testing.T) {
+	for _, id := range []string{"hostname", "network", "packages"} {
+		if !Identifying[id] {
+			t.Errorf("%s is not marked as identifying", id)
+		}
+	}
+	if Identifying["kernel"] || Identifying["os_name"] {
+		t.Error("a field that only names the kind of machine is marked")
+	}
+}
