@@ -14,6 +14,7 @@ services:
     mem_limit: 64m
     memswap_limit: 64m
     cpus: 0.25
+    cpu_shares: 2   # lowest weight: it only gets CPU nothing else wants
     pids_limit: 16
     ulimits: { nofile: 64, fsize: 2097152, core: 0 }
     volumes:

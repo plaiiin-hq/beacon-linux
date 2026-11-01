@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Field is one thing this machine can report. A field is READ only when it is switched on: nothing is collected
@@ -146,14 +148,34 @@ func secureBoot(root string) (any, bool) {
 	return "off", true
 }
 
-// dpkgPackages: installed packages and versions from dpkg's status file (Debian, Ubuntu).
+// dpkgPackages: installed packages and versions from dpkg's status file (Debian, Ubuntu). The file is a few megabytes and
+// changes only when a package does, so it is parsed once and again only when its size or modification time changes; the
+// parse itself takes a short rest every few thousand lines, so even that never lands as a burst.
+var dpkgCache struct {
+	sync.Mutex
+	path  string
+	size  int64
+	mtime time.Time
+	value []map[string]string
+}
+
 func dpkgPackages(root string) (any, bool) {
-	f, err := os.Open(filepath.Join(root, "var/lib/dpkg/status"))
+	path := filepath.Join(root, "var/lib/dpkg/status")
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, false
+	}
+	dpkgCache.Lock()
+	defer dpkgCache.Unlock()
+	if dpkgCache.path == path && dpkgCache.size == info.Size() && dpkgCache.mtime.Equal(info.ModTime()) && dpkgCache.value != nil {
+		return dpkgCache.value, true
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, false
 	}
 	defer f.Close()
-	var out []map[string]string
+	out := []map[string]string{}
 	name, version, installed := "", "", false
 	flush := func() {
 		if name != "" && installed {
@@ -163,7 +185,7 @@ func dpkgPackages(root string) (any, bool) {
 	}
 	s := bufio.NewScanner(f)
 	s.Buffer(make([]byte, 1<<20), 1<<20)
-	for s.Scan() {
+	for lines := 1; s.Scan(); lines++ {
 		line := s.Text()
 		switch {
 		case line == "":
@@ -175,9 +197,13 @@ func dpkgPackages(root string) (any, bool) {
 		case strings.HasPrefix(line, "Status: "):
 			installed = strings.HasSuffix(line, " installed")
 		}
+		if lines%4000 == 0 {
+			time.Sleep(2 * time.Millisecond) // a micro break
+		}
 	}
 	flush()
 	sort.Slice(out, func(i, j int) bool { return out[i]["name"] < out[j]["name"] })
+	dpkgCache.path, dpkgCache.size, dpkgCache.mtime, dpkgCache.value = path, info.Size(), info.ModTime(), out
 	return out, true
 }
 
@@ -222,6 +248,7 @@ func Report(root string, enabled []string) map[string]any {
 			if v, ok := f.Read(root); ok {
 				out[f.ID] = v
 			}
+			time.Sleep(2 * time.Millisecond) // a micro break between fields: a report is a trickle, not a burst
 		}
 	}
 	return out

@@ -449,3 +449,18 @@ func TestThePlaceIsSavedAndClearedWithoutTouchingTheRestOfTheFile(t *testing.T) 
 	}
 	declaredPlace = ""
 }
+
+func TestThePackageListIsParsedOnceAndAgainOnlyWhenDpkgsFileChanges(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "var/lib/dpkg/status", "Package: a\nStatus: install ok installed\nVersion: 1\n\n")
+	first, _ := dpkgPackages(root)
+	again, _ := dpkgPackages(root)
+	if len(first.([]map[string]string)) != 1 || &first.([]map[string]string)[0] != &again.([]map[string]string)[0] {
+		t.Fatal("the second read did not come from the cache")
+	}
+	write(t, root, "var/lib/dpkg/status", "Package: a\nStatus: install ok installed\nVersion: 1\n\nPackage: b\nStatus: install ok installed\nVersion: 2\n\n")
+	changed, _ := dpkgPackages(root)
+	if len(changed.([]map[string]string)) != 2 {
+		t.Fatalf("a changed file is parsed again: %v", changed)
+	}
+}

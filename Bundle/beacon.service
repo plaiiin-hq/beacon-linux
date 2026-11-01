@@ -31,6 +31,14 @@ TemporaryFileSystem=/etc:ro
 BindReadOnlyPaths=-/etc/os-release -/etc/timezone -/etc/beacon -/etc/resolv.conf -/etc/hosts -/etc/nsswitch.conf -/etc/host.conf -/etc/gai.conf -/etc/localtime -/etc/ssl -/etc/ca-certificates -/etc/pki
 InaccessiblePaths=-/root -/boot -/srv -/opt -/mnt -/media -/var/log -/var/mail -/var/spool -/var/backups -/var/cache -/var/tmp -/var/lib/private -/var/lib/docker -/var/lib/containers -/run/user -/run/docker.sock -/run/containerd -/run/dbus -/run/systemd/private
 
+# Never in anyone's way: it runs only on CPU time and disk bandwidth nothing else wants (idle scheduling class, lowest priority
+# and weight), so a busy server is not slowed by it, ever. Its own work is also paced (small rests inside the heavy reads).
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+CPUWeight=1
+IOWeight=1
+
 # Bounded: whatever goes wrong inside it stays small. It needs a few MB of memory, a trickle of CPU, a handful of
 # processes and files; its largest file is a report of at most 256 KB.
 MemoryMax=64M

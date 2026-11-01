@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -37,6 +38,8 @@ func main() {
 		fmt.Print(usage)
 		os.Exit(2)
 	}
+	// One thread is all this needs: it never uses more than one core, however busy the Go runtime would like to be.
+	runtime.GOMAXPROCS(1)
 	cmd := os.Args[1]
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	configPath := fs.String("config", "/etc/beacon/beacon.json", "consent file")
