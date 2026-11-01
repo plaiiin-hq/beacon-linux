@@ -1,0 +1,28 @@
+# plaiiin Beacon in a container. Join once:   docker compose run --rm beacon join '<join string>' --name "$(hostname)"
+# then run:                                   docker compose up -d
+# It sees the host only through the read-only files mounted under /host, and cannot write anything but its state.
+services:
+  beacon:
+    image: ghcr.io/plaiiin-hq/beacon:latest
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "65532:65532"
+    volumes:
+      - beacon-state:/var/lib/beacon
+      - ./beacon.json:/etc/beacon/beacon.json:ro
+      # The host's facts, read-only; mount only what the fields you switch on need.
+      - /etc/os-release:/host/etc/os-release:ro
+      - /etc/hostname:/host/proc/sys/kernel/hostname:ro
+      - /proc/sys/kernel/osrelease:/host/proc/sys/kernel/osrelease:ro
+      - /proc/cpuinfo:/host/proc/cpuinfo:ro
+      - /proc/meminfo:/host/proc/meminfo:ro
+      - /proc/stat:/host/proc/stat:ro
+      - /sys/class/dmi/id:/host/sys/class/dmi/id:ro
+      - /sys/block:/host/sys/block:ro
+      - /sys/firmware:/host/sys/firmware:ro
+      - /var/lib/dpkg/status:/host/var/lib/dpkg/status:ro
+volumes:
+  beacon-state:

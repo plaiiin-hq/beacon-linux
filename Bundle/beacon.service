@@ -1,0 +1,63 @@
+# plaiiin Beacon: reports this machine's facts to a plaiiin Status inventory.
+# The confinement below is systemd's, not ours: check it with `systemd-analyze security beacon.service`.
+[Unit]
+Description=plaiiin Beacon (inventory reporter)
+Documentation=https://github.com/plaiiin-hq/App-Status/tree/main/Beacon/Linux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=beacon
+Group=beacon
+ExecStart=/usr/bin/beacon run --config /etc/beacon/beacon.json --state /var/lib/beacon
+Restart=on-failure
+RestartSec=30
+
+# Its own state only; the consent file is root's and read-only to it.
+StateDirectory=beacon
+StateDirectoryMode=0700
+UMask=0077
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+
+# No privileges, ever.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+
+# Nothing of the kernel to change.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+
+# Out to the internet only, plus a netlink socket to read its interfaces' addresses (the "network" field; without
+# CAP_NET_ADMIN it can only read): no local sockets, no raw sockets, no listening on anything it could be told to.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+# It cannot start any program: everything is mounted non-executable except its own binary. (Not a seccomp
+# rule on execve: systemd applies the filter before it starts the service, so that blocks the service itself;
+# 0.1.0 died of it with SIGSYS, 0.1.1 with 203/EXEC.)
+NoExecPaths=/
+ExecPaths=/usr/bin/beacon
+# Ordinary service calls only; a refused call fails with EPERM instead of killing the process. @resources stays
+# allowed: Go raises its open-file limit with setrlimit at start.
+SystemCallArchitectures=native
+SystemCallErrorNumber=EPERM
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @debug @cpu-emulation @obsolete @raw-io @reboot @swap
+SystemCallFilter=~fork vfork
+
+[Install]
+WantedBy=multi-user.target

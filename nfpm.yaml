@@ -1,0 +1,23 @@
+# .deb and .rpm for plaiiin Beacon: the binary, the hardened unit, the account, and a consent file with everything off.
+name: plaiiin-beacon
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+maintainer: plaiiin GmbH <support@plaiiin.com>
+description: Reports this machine's facts, only those its owner switches on, to a plaiiin Status inventory.
+homepage: https://plaiiin.com
+license: Proprietary
+contents:
+  - src: dist/staging/beacon
+    dst: /usr/bin/beacon
+    file_info: { mode: 0755 }
+  - src: Bundle/beacon.service
+    dst: /usr/lib/systemd/system/beacon.service
+  - src: Bundle/sysusers.conf
+    dst: /usr/lib/sysusers.d/beacon.conf
+  - src: Bundle/beacon.json
+    dst: /etc/beacon/beacon.json
+    type: config|noreplace
+    file_info: { mode: 0644 }
+scripts:
+  postinstall: Bundle/postinstall.sh
