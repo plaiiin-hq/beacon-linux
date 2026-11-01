@@ -372,3 +372,38 @@ func TestDisksListRealFilesystemsOnlyOnceAndReadTheirSizes(t *testing.T) {
 		t.Fatal("octal escape")
 	}
 }
+
+func TestASlowFieldIsSentInFullAtFirstWhenChangedAndEveryHourOtherwiseItIsNamedUnchanged(t *testing.T) {
+	st := slowState{}
+	now := time.Now()
+	report := map[string]any{"kernel": "6.8", "packages": []string{"a", "b"}}
+
+	body, full := st.BodyFor("s", report, now)
+	if !strings.Contains(string(body), `"packages"`) || strings.Contains(string(body), "unchanged") {
+		t.Fatalf("first report must carry the package list: %s", body)
+	}
+	st.Record("s", full, now)
+
+	body, full = st.BodyFor("s", report, now.Add(30*time.Second))
+	if strings.Contains(string(body), `"packages":`) || !strings.Contains(string(body), `"unchanged":["packages"]`) || !strings.Contains(string(body), `"kernel":"6.8"`) {
+		t.Fatalf("an unchanged package list is left out and named: %s", body)
+	}
+	if len(full) != 0 {
+		t.Fatal("nothing slow was sent in full")
+	}
+
+	changed := map[string]any{"kernel": "6.8", "packages": []string{"a", "b", "c"}}
+	body, _ = st.BodyFor("s", changed, now.Add(time.Minute))
+	if !strings.Contains(string(body), `"packages"`) || strings.Contains(string(body), "unchanged") {
+		t.Fatalf("a changed list goes in full: %s", body)
+	}
+
+	body, _ = st.BodyFor("s", report, now.Add(61*time.Minute))
+	if !strings.Contains(string(body), `"packages":`) {
+		t.Fatalf("at least hourly, in full: %s", body)
+	}
+	body, _ = st.BodyFor("another server", report, now.Add(time.Minute))
+	if !strings.Contains(string(body), `"packages":`) {
+		t.Fatal("each server gets the list in full the first time")
+	}
+}

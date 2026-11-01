@@ -47,6 +47,7 @@ func run(cfg Config, dir string, c *Client) {
 	}
 	log.Printf("beacon: device %s, state in %s", key.DeviceID(), dir)
 	startup := true
+	slow := slowState{}
 	for {
 		if fresh, err := LoadConfig(configPathOf(cfg)); err == nil {
 			cfg = fresh
@@ -55,14 +56,21 @@ func run(cfg Config, dir string, c *Client) {
 		st, _ := LoadStatus(dir)
 		changed := false
 		if len(cfg.Fields) > 0 {
-			body, _ := json.Marshal(Report(cfg.Root, cfg.Fields))
+			var report map[string]any
 			var sentTo []string
+			var lastBody []byte
 			for _, s := range servers {
 				if isDue(st[s.URL], c.Now(), cfg.IntervalSeconds, startup) {
+					if report == nil {
+						report = Report(cfg.Root, cfg.Fields)
+					}
+					body, sentFull := slow.BodyFor(s.URL, report, c.Now())
 					st[s.URL] = sendOnce(c, key, s, body, cfg.IntervalSeconds, st[s.URL])
 					log.Printf("%s: %s (%d fields, %d bytes)", s.Name, st[s.URL].LastResult, len(cfg.Fields), len(body))
 					if st[s.URL].LastResult == "accepted" {
 						sentTo = append(sentTo, s.Name)
+						slow.Record(s.URL, sentFull, c.Now())
+						lastBody = body
 					}
 					changed = true
 				}
@@ -70,7 +78,7 @@ func run(cfg Config, dir string, c *Client) {
 			// What left, exactly: `beacon last` shows it, so an admin can check the wire against the consent file.
 			if len(sentTo) > 0 {
 				_ = writeJSON(filepath.Join(dir, "last-report.json"), map[string]any{
-					"sent_at": c.Now().UTC().Format(time.RFC3339), "to": sentTo, "report": json.RawMessage(body)})
+					"sent_at": c.Now().UTC().Format(time.RFC3339), "to": sentTo, "report": json.RawMessage(lastBody)})
 			}
 		}
 		if changed {

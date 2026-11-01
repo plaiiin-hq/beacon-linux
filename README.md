@@ -59,6 +59,13 @@ The unit (`Bundle/beacon.service`) is confined by systemd: its own account, read
 internet sockets only, and nothing but its own binary is executable (`NoExecPaths=/`). Check it yourself:
 `systemd-analyze security beacon.service` (1.4, "OK", for 0.1.2).
 
+**Old systemd.** The unit is written for systemd 247 or newer (Debian 11+, Ubuntu 22.04+, RHEL 9). On an older one
+(Debian 10 has 241) systemd ignores the directives it does not know, and says so (`systemd-analyze verify
+beacon.service`): `NoExecPaths`/`ExecPaths` (only the binary may execute), `ProtectProc`, `ProtectClock`,
+`ProtectKernelLogs`, `ProtectHostname`, `RestrictSUIDSGID` and `OOMPolicy`. What stays: its own account, a read-only system,
+no capabilities, no new privileges, the syscall filter, the limited view of `/etc` and `/var`, and the resource limits.
+On such a host install the `.deb` directly: the repository file (`plaiiin.sources`) needs apt 2.1 or newer.
+
 ## Run (container)
 
 `compose.yml`: a 2.7 MB `scratch` image, non-root, `read_only`, `cap_drop: ALL`, `no-new-privileges`; the host's
