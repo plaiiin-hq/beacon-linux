@@ -10,6 +10,12 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     user: "65532:65532"
+    # Bounded, as in the systemd unit: whatever goes wrong inside stays small.
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.25
+    pids_limit: 16
+    ulimits: { nofile: 64, fsize: 2097152, core: 0 }
     volumes:
       - beacon-state:/var/lib/beacon
       - ./beacon.json:/etc/beacon/beacon.json:ro

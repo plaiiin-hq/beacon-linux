@@ -353,3 +353,22 @@ func TestTheFieldsThatNameThisMachineAreMarked(t *testing.T) {
 		t.Error("a field that only names the kind of machine is marked")
 	}
 }
+
+func TestDisksListRealFilesystemsOnlyOnceAndReadTheirSizes(t *testing.T) {
+	root := t.TempDir()
+	mnt := filepath.Join(root, "data dir")
+	_ = os.MkdirAll(mnt, 0o755)
+	write(t, root, "proc/mounts", "proc /proc proc rw 0 0\n/dev/sda1 /data\\040dir ext4 rw 0 0\n/dev/sda1 /again ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb1 /gone xfs rw 0 0\noverlay /data\\040dir/bound overlay rw 0 0\n")
+	_ = os.MkdirAll(filepath.Join(mnt, "bound"), 0o755)
+	got, ok := disks(root)
+	if !ok {
+		t.Fatal("no disks")
+	}
+	list := got.([]Disk)
+	if len(list) != 1 || list[0].Mount != "/data dir" /* the bind mount inside it is the same filesystem: listed once, by its shortest mount point */ || list[0].FS != "ext4" || list[0].SizeGB <= 0 || list[0].FreeGB > list[0].SizeGB {
+		t.Fatalf("%+v", list)
+	}
+	if unescapeMount(`/mnt/my\040disk`) != "/mnt/my disk" {
+		t.Fatal("octal escape")
+	}
+}

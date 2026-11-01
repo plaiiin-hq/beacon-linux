@@ -115,7 +115,7 @@ func bootTime(root string) (any, bool) {
 // diskEncryption: device-mapper devices whose uuid starts with CRYPT- are dm-crypt/LUKS volumes.
 func diskEncryption(root string) (any, bool) {
 	matches, _ := filepath.Glob(filepath.Join(root, "sys/block/*/dm/uuid"))
-	var crypt []string
+	crypt := []string{}
 	for _, m := range matches {
 		b, err := os.ReadFile(m)
 		if err == nil && strings.HasPrefix(string(b), "CRYPT-") {
@@ -202,6 +202,7 @@ var Fields = []Field{
 	{"network", "Network interfaces", "IP and MAC addresses (netlink)", networkInterfaces},
 	{"cpu", "CPU", "/proc/cpuinfo", cpu},
 	{"memory_mb", "Memory", "/proc/meminfo MemTotal", meminfoMB},
+	{"disks", "Disks", "/proc/mounts, statfs (size and free space per filesystem)", disks},
 	{"boot_time", "Last boot", "/proc/stat btime", bootTime},
 	{"disk_encryption", "Disk encryption", "/sys/block/*/dm/uuid (dm-crypt)", diskEncryption},
 	{"secure_boot", "Secure Boot", "/sys/firmware/efi/efivars/SecureBoot-*", secureBoot},
