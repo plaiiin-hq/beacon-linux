@@ -467,3 +467,50 @@ func TestThePackageListIsParsedOnceAndAgainOnlyWhenDpkgsFileChanges(t *testing.T
 		t.Fatalf("a changed file is parsed again: %v", changed)
 	}
 }
+
+func TestDebianVersionsOrderTheWayDpkgDoes(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.5", -1}, {"1.0", "1.0", 0}, {"1.0~rc1", "1.0", -1}, {"1:0.9", "2.0", 1},
+		{"1.10", "1.9", 1}, {"1.0-1", "1.0-1ubuntu1", -1}, {"2.4.52-1ubuntu4.14", "2.4.52-1ubuntu4.9", 1}, {"1.0+dfsg", "1.0", 1},
+	} {
+		if got := debCompare(c.a, c.b); got != c.want {
+			t.Errorf("debCompare(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+		if got := debCompare(c.b, c.a); got != -c.want {
+			t.Errorf("debCompare(%q, %q) = %d, want %d", c.b, c.a, got, -c.want)
+		}
+	}
+}
+
+func TestSecurityUpdatesAreWhatTheSecurityListOffersBeyondWhatIsInstalled(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "var/lib/dpkg/status", "Package: openssl\nStatus: install ok installed\nVersion: 3.0.13-0ubuntu3.4\n\nPackage: curl\nStatus: install ok installed\nVersion: 8.5.0-2ubuntu10.6\n\nPackage: bash\nStatus: install ok installed\nVersion: 5.2\n\n")
+	write(t, root, "var/lib/apt/lists/mirror_ubuntu_security_dists_noble-security_main_binary-amd64_Packages",
+		"Package: openssl\nVersion: 3.0.13-0ubuntu3.5\n\nPackage: openssl\nVersion: 3.0.13-0ubuntu3.6\n\nPackage: curl\nVersion: 8.5.0-2ubuntu10.6\n\nPackage: notinstalled\nVersion: 9\n\n")
+	write(t, root, "var/lib/apt/lists/mirror_ubuntu_dists_noble_InRelease", "x")
+	write(t, root, "var/lib/update-notifier/updates-available", "\n29 updates can be applied immediately.\n")
+	write(t, root, "var/run/reboot-required", "*** System restart required ***\n")
+	write(t, root, "var/run/reboot-required.pkgs", "linux-image-6.8.0-100-generic\n")
+
+	v, ok := updates(root)
+	if !ok {
+		t.Fatal("an apt system answers")
+	}
+	r := v.(map[string]any)
+	if r["security"] != 1 {
+		t.Fatalf("one package has a newer security version (openssl; curl is current, notinstalled is not here): %v", r)
+	}
+	pk := r["security_packages"].([]map[string]string)
+	if len(pk) != 1 || pk[0]["name"] != "openssl" || pk[0]["available"] != "3.0.13-0ubuntu3.6" {
+		t.Errorf("the newest security version wins: %v", pk)
+	}
+	if r["pending"] != 29 || r["reboot_required"] != true || r["lists_checked_at"] == nil {
+		t.Errorf("pending, reboot and freshness are reported: %v", r)
+	}
+	if _, ok := updates(t.TempDir()); ok {
+		t.Error("a system without apt lists says nothing, rather than \"0\"")
+	}
+}

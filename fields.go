@@ -234,6 +234,7 @@ var Fields = []Field{
 	{"disk_encryption", "Disk encryption", "/sys/block/*/dm/uuid (dm-crypt)", diskEncryption},
 	{"secure_boot", "Secure Boot", "/sys/firmware/efi/efivars/SecureBoot-*", secureBoot},
 	{"packages", "Installed packages", "/var/lib/dpkg/status", dpkgPackages},
+	{"updates", "Updates waiting", "security updates (apt's security lists against dpkg), pending count, reboot needed; nothing is run", updates},
 }
 
 // Report reads exactly the enabled fields. A field that cannot be read on this machine is left out.
