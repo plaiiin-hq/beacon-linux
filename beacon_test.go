@@ -517,3 +517,53 @@ func TestSecurityUpdatesAreWhatTheSecurityListOffersBeyondWhatIsInstalled(t *tes
 		t.Error("a system without apt lists says nothing, rather than \"0\"")
 	}
 }
+
+// A server that does not answer is not a different server: the challenge failing for want of a clean answer (a restart, a blip, an
+// error page) is "could not reach", with the reason, and only an answer carrying ANOTHER identity is wrong_server.
+func TestNoAnswerIsNotAWrongServer(t *testing.T) {
+	key, _ := LoadOrCreateKey(t.TempDir())
+	f := newFakeServer(t)
+	id := f.id()
+
+	// an error page where the challenge answer should be
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "<html>bad gateway</html>", http.StatusBadGateway)
+	}))
+	defer broken.Close()
+	if o := NewClient().Send(broken.URL, id, key, []byte(`{"kernel":"6.8"}`), 30); o.Result != "failed" || !strings.Contains(o.Detail, "HTTP 502") {
+		t.Fatalf("an error page: %+v", o)
+	}
+
+	// something answering 200 with no JSON
+	junk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("not json")) }))
+	defer junk.Close()
+	if o := NewClient().Send(junk.URL, id, key, []byte(`{}`), 30); o.Result != "failed" {
+		t.Fatalf("junk: %+v", o)
+	}
+
+	// nobody listening at all
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := gone.URL
+	gone.Close()
+	if o := NewClient().Send(url, id, key, []byte(`{}`), 30); o.Result != "failed" || !strings.Contains(o.Detail, "could not reach the server") {
+		t.Fatalf("no listener: %+v", o)
+	}
+
+	// and registering says the same, not "wrong server"
+	j, _ := ParseJoin(url + "#" + id + ".s3cret_-xxxxxxxxxxxxxxxxxxxxxxxx")
+	if _, err := NewClient().Register(j, key, "web-1"); err == nil || err == ErrWrongServer || !strings.Contains(err.Error(), "could not reach the server") {
+		t.Fatalf("register with no listener: %v", err)
+	}
+}
+
+func TestAnotherIdentityIsStillAWrongServerOnAReport(t *testing.T) {
+	key, _ := LoadOrCreateKey(t.TempDir())
+	real := newFakeServer(t)
+	impostor := newFakeServer(t)
+	if o := NewClient().Send(impostor.URL, real.id(), key, []byte(`{"kernel":"6.8"}`), 30); o.Result != "wrong_server" {
+		t.Fatalf("%+v", o)
+	}
+	if len(impostor.reports) != 0 {
+		t.Fatal("the impostor received a report")
+	}
+}

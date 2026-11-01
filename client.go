@@ -58,30 +58,53 @@ func (c *Client) post(base, path string, body []byte, headers map[string]string)
 	return resp.StatusCode, data, err
 }
 
-// VerifyServer: the server signs a fresh random challenge with its key; the key's fingerprint must be the pinned ID.
-func (c *Client) VerifyServer(base, serverID string) bool {
+// proof is what asking a server to prove itself came to. Only an answer that is well formed and carries ANOTHER identity is "wrong":
+// no answer at all (no network, a timeout, an error page, a server mid-restart) says nothing about WHICH server it is, so it is just
+// "could not reach", with the reason. Either way nothing is sent.
+type proof int
+
+const (
+	proofVerified proof = iota
+	proofWrong
+	proofUnreachable
+)
+
+// verify: the server signs a fresh random challenge with its key; the key's fingerprint must be the pinned ID.
+func (c *Client) verify(base, serverID string) (proof, string) {
 	challenge := make([]byte, 32)
 	if _, err := rand.Read(challenge); err != nil {
-		return false
+		return proofUnreachable, "no random bytes"
 	}
 	body, _ := json.Marshal(map[string]string{"challenge": base64.StdEncoding.EncodeToString(challenge)})
 	status, data, err := c.post(base, "api/server/challenge", body, nil)
-	if err != nil || status != http.StatusOK {
-		return false
+	if err != nil {
+		return proofUnreachable, err.Error()
+	}
+	if status != http.StatusOK {
+		return proofUnreachable, fmt.Sprintf("HTTP %d", status)
 	}
 	var answer struct {
 		PublicKey string `json:"publicKey"`
 		Signature string `json:"signature"`
 	}
 	if json.Unmarshal(data, &answer) != nil {
-		return false
+		return proofUnreachable, "unexpected answer"
 	}
 	raw, err1 := base64.StdEncoding.DecodeString(answer.PublicKey)
 	sig, err2 := base64.StdEncoding.DecodeString(answer.Signature)
 	if err1 != nil || err2 != nil || len(raw) != ed25519.PublicKeySize || Fingerprint(raw) != serverID {
-		return false
+		return proofWrong, ""
 	}
-	return ed25519.Verify(ed25519.PublicKey(raw), append(append([]byte{}, serverPrefix...), challenge...), sig)
+	if !ed25519.Verify(ed25519.PublicKey(raw), append(append([]byte{}, serverPrefix...), challenge...), sig) {
+		return proofWrong, ""
+	}
+	return proofVerified, ""
+}
+
+// VerifyServer reports whether the server proved itself.
+func (c *Client) VerifyServer(base, serverID string) bool {
+	p, _ := c.verify(base, serverID)
+	return p == proofVerified
 }
 
 var ErrWrongServer = errors.New("that is not the server the join string names; nothing was sent")
@@ -89,8 +112,11 @@ var ErrWrongServer = errors.New("that is not the server the join string names; n
 // Register introduces this device to the server named in the join string. Returns the server's status for it
 // ("pending" until an admin approves, or "approved").
 func (c *Client) Register(join JoinString, key DeviceKey, name string) (string, error) {
-	if !c.VerifyServer(join.ServerURL, join.ServerID) {
+	switch p, why := c.verify(join.ServerURL, join.ServerID); p {
+	case proofWrong:
 		return "", ErrWrongServer
+	case proofUnreachable:
+		return "", fmt.Errorf("could not reach the server: %s", why)
 	}
 	credential := "joinSecret"
 	if join.Enrollment {
@@ -129,8 +155,11 @@ type Outcome struct {
 
 // Send posts a signed report and says how often this device means to call in.
 func (c *Client) Send(base, serverID string, key DeviceKey, body []byte, intervalSeconds int) Outcome {
-	if !c.VerifyServer(base, serverID) {
+	switch p, why := c.verify(base, serverID); p {
+	case proofWrong:
 		return Outcome{Result: "wrong_server", Detail: ErrWrongServer.Error()}
+	case proofUnreachable:
+		return Outcome{Result: "failed", Detail: "could not reach the server: " + why}
 	}
 	ts := c.Now().UTC().Format(time.RFC3339)
 	status, data, err := c.post(base, "api/inventory/v1/report", body, map[string]string{
