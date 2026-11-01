@@ -407,3 +407,45 @@ func TestASlowFieldIsSentInFullAtFirstWhenChangedAndEveryHourOtherwiseItIsNamedU
 		t.Fatal("each server gets the list in full the first time")
 	}
 }
+
+func TestSelfReportedLocationIsTheTimeZonesCityAndTheAdminsOwnWords(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "etc/timezone", "Europe/Zurich\n")
+	declaredPlace = ""
+	got, ok := selfReportedLocation(root)
+	m := got.(map[string]any)
+	if !ok || m["city"] != "Zurich" || m["timezone"] != "Europe/Zurich" || m["source"] != "time zone setting" || m["place"] != nil {
+		t.Fatalf("%v", m)
+	}
+	declaredPlace = "Zurich, rack 3"
+	defer func() { declaredPlace = "" }()
+	m = func() map[string]any { g, _ := selfReportedLocation(root); return g.(map[string]any) }()
+	if m["place"] != "Zurich, rack 3" || m["source"] != "set by the admin" || m["city"] != "Zurich" {
+		t.Fatalf("%v", m)
+	}
+	if cityOf("America/Argentina/Buenos_Aires") != "Buenos Aires" || cityOf("UTC") != "" || cityOf("Etc/GMT+1") != "" {
+		t.Fatal("city names")
+	}
+	if formatOffset(3600) != "+01:00" || formatOffset(-19800) != "-05:30" {
+		t.Fatal("offset")
+	}
+}
+
+func TestThePlaceIsSavedAndClearedWithoutTouchingTheRestOfTheFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "beacon.json")
+	write(t, dir, "beacon.json", `{"fields":["kernel"],"interval_seconds":120}`)
+	if err := SavePlace(p, "Zurich, rack 3"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := LoadConfig(p)
+	if c.Place != "Zurich, rack 3" || c.IntervalSeconds != 120 || len(c.Fields) != 1 || declaredPlace != "Zurich, rack 3" {
+		t.Fatalf("%+v", c)
+	}
+	_ = SavePlace(p, "")
+	c, _ = LoadConfig(p)
+	if c.Place != "" || c.IntervalSeconds != 120 {
+		t.Fatalf("%+v", c)
+	}
+	declaredPlace = ""
+}

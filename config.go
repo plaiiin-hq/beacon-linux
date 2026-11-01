@@ -17,6 +17,8 @@ type Config struct {
 	IntervalSeconds int      `json:"interval_seconds"`
 	// Root is where the machine's files are read from: "/" normally, "/host" in a container.
 	Root string `json:"root"`
+	// Place is where the admin says this machine is, in their own words; reported with location_self.
+	Place string `json:"place,omitempty"`
 
 	path string // where it was read from, so the run loop can re-read it
 }
@@ -59,6 +61,7 @@ func LoadConfig(path string) (Config, error) {
 	if c.Root == "" {
 		c.Root = "/"
 	}
+	declaredPlace = c.Place
 	return c, nil
 }
 
@@ -147,6 +150,36 @@ func SaveFields(path string, fields []string) error {
 	sort.Strings(fields)
 	list, _ := json.Marshal(fields)
 	raw["fields"] = list
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return friendly(path, err)
+	}
+	return friendly(path, os.Rename(tmp, path))
+}
+
+// SavePlace sets (or, with "", clears) the admin's own words for where this machine is, and leaves the rest of the file alone.
+func SavePlace(path, place string) error {
+	raw := map[string]json.RawMessage{}
+	if b, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(b, &raw); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if place == "" {
+		delete(raw, "place")
+	} else {
+		v, _ := json.Marshal(place)
+		raw["place"] = v
+	}
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err

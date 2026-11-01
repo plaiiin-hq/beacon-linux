@@ -20,6 +20,7 @@ const usage = `beacon: report this machine's facts to a plaiiin Status inventory
   beacon enable <field…|all>            switch fields on (root; "all" is every field this version has)
   beacon disable <field…|all>           switch fields off ("disable all" stops reporting anything)
   beacon last                           the exact report that was last sent, and to whom
+  beacon place "<where it is>"          say where this machine is, in your own words (root); empty clears it
   beacon dry-run                        the exact report that would be sent
   beacon join <join string> [--name N]  register with a server: its join string (Settings → Agents) or a
                                         plaiiin-infrastructure:// link from its Inventory page
@@ -69,6 +70,15 @@ func main() {
 		cfg.Fields = next
 		listFields(cfg)
 		fmt.Println("\nA running service picks this up within a few seconds.")
+	case "place":
+		if err := SavePlace(*configPath, strings.Join(fs.Args(), " ")); err != nil {
+			log.Fatal(err)
+		}
+		if p := strings.Join(fs.Args(), " "); p == "" {
+			fmt.Println("Cleared. Switch the field on or off with: sudo beacon enable|disable location_self")
+		} else {
+			fmt.Printf("This machine is now reported as: %s\n(sent when location_self is on: sudo beacon enable location_self)\n", p)
+		}
 	case "last":
 		showLast(*stateDir)
 	case "dry-run":

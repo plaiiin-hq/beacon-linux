@@ -200,6 +200,7 @@ var Fields = []Field{
 		return strings.TrimSpace(vendor + " " + name), true
 	}},
 	{"network", "Network interfaces", "IP and MAC addresses (netlink)", networkInterfaces},
+	{"location_self", "Self-reported location", "/etc/timezone or /etc/localtime, and the admin's own words (beacon place)", selfReportedLocation},
 	{"cpu", "CPU", "/proc/cpuinfo", cpu},
 	{"memory_mb", "Memory", "/proc/meminfo MemTotal", meminfoMB},
 	{"disks", "Disks", "/proc/mounts, statfs (size and free space per filesystem)", disks},

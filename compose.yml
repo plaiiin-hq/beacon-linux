@@ -21,6 +21,7 @@ services:
       - ./beacon.json:/etc/beacon/beacon.json:ro
       # The host's facts, read-only; mount only what the fields you switch on need.
       - /etc/os-release:/host/etc/os-release:ro
+      - /etc/timezone:/host/etc/timezone:ro
       - /etc/hostname:/host/proc/sys/kernel/hostname:ro
       - /proc/sys/kernel/osrelease:/host/proc/sys/kernel/osrelease:ro
       - /proc/cpuinfo:/host/proc/cpuinfo:ro

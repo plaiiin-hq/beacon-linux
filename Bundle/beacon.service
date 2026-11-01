@@ -28,7 +28,7 @@ ProtectProc=invisible
 # network client and the os-release field need, and the places where other programs keep logs, mail, backups and keys
 # are not there at all. (Optional paths carry a "-": a distribution without one is not an error.)
 TemporaryFileSystem=/etc:ro
-BindReadOnlyPaths=-/etc/os-release -/etc/beacon -/etc/resolv.conf -/etc/hosts -/etc/nsswitch.conf -/etc/host.conf -/etc/gai.conf -/etc/localtime -/etc/ssl -/etc/ca-certificates -/etc/pki
+BindReadOnlyPaths=-/etc/os-release -/etc/timezone -/etc/beacon -/etc/resolv.conf -/etc/hosts -/etc/nsswitch.conf -/etc/host.conf -/etc/gai.conf -/etc/localtime -/etc/ssl -/etc/ca-certificates -/etc/pki
 InaccessiblePaths=-/root -/boot -/srv -/opt -/mnt -/media -/var/log -/var/mail -/var/spool -/var/backups -/var/cache -/var/tmp -/var/lib/private -/var/lib/docker -/var/lib/containers -/run/user -/run/docker.sock -/run/containerd -/run/dbus -/run/systemd/private
 
 # Bounded: whatever goes wrong inside it stays small. It needs a few MB of memory, a trickle of CPU, a handful of
