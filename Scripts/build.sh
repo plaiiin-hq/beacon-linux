@@ -17,6 +17,7 @@ if [[ -n "${SIGNING_KEY:-}" ]]; then
     { cat nfpm.yaml; printf 'rpm:\n  signature:\n    key_file: %s\n' "$SIGNING_KEY"; } > "$CONFIG"
     export NFPM_RPM_PASSPHRASE="${NFPM_RPM_PASSPHRASE:-}"
 fi
+sed -i.bak -E "s/^const Version = \".*\"/const Version = \"$VERSION\"/" version.go && rm -f version.go.bak
 go vet ./...
 go test ./...
 # Known vulnerabilities the code actually reaches; a finding stops the build.

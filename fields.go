@@ -251,5 +251,9 @@ func Report(root string, enabled []string) map[string]any {
 			time.Sleep(2 * time.Millisecond) // a micro break between fields: a report is a trickle, not a burst
 		}
 	}
+	// Which Beacon is reporting: sent with every report that carries anything, so a list can tell which machines run an old one.
+	if len(out) > 0 {
+		out["beacon_version"] = Version
+	}
 	return out
 }

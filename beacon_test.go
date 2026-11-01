@@ -252,6 +252,9 @@ func TestOnlyTheFieldsSwitchedOnAreReadFromTheMachinesFiles(t *testing.T) {
 	if strings.Contains(string(b), "gone") {
 		t.Error("a removed package is reported")
 	}
+	if v, _ := Report(root, []string{"kernel"})["beacon_version"].(string); v != Version || v == "" {
+		t.Errorf("a report names the Beacon that made it, got %q", v)
+	}
 	if len(Report(root, nil)) != 0 {
 		t.Error("something is reported with nothing switched on")
 	}
