@@ -655,3 +655,134 @@ func TestALoginFloodIsBoundedAndNamesAreCleaned(t *testing.T) {
 		t.Error("who is logged in names people: it is marked as identifying")
 	}
 }
+
+// resetRecent forgets what the recent-logins reader kept, so each test starts as a fresh process.
+func resetRecent() {
+	recentState.Lock()
+	recentState.path, recentState.info, recentState.off, recentState.entries = "", nil, 0, nil
+	recentState.Unlock()
+}
+
+func appendFile(t *testing.T, root, path, text string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(root, path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShortSshSessionsComeFromTheAuthLogAndTheReportSaysSo(t *testing.T) {
+	resetRecent()
+	root := t.TempDir()
+	write(t, root, "run/systemd/sessions/1", "USER=martin\nCLASS=user\nTTY=pts/0\nREALTIME=1761900000000000\n")
+	write(t, root, "var/log/auth.log",
+		"2026-11-02T09:23:58.123456+01:00 host sshd[111]: Accepted publickey for root from 203.0.113.9 port 51234 ssh2: ED25519 SHA256:x\n"+
+			"2026-11-02T09:23:58.500000+01:00 host sshd[111]: pam_unix(sshd:session): session opened for user root(uid=0) by (uid=0)\n"+
+			"2026-11-02T09:23:59.100000+01:00 host sshd[111]: pam_unix(sshd:session): session closed for user root\n"+
+			"2026-11-02T09:24:10.000000+01:00 host sshd[222]: Failed password for invalid user admin from 198.51.100.4 port 22 ssh2\n"+
+			"2026-11-02T09:24:11.000000+01:00 host cron[5]: something else\n"+
+			"2026-11-02T09:25:00.000000+01:00 host sshd[333]: Accepted password for alex from 198.51.100.7 port 40000 ssh2\n")
+
+	v, ok := logins(root)
+	if !ok {
+		t.Fatal("answers")
+	}
+	r := v.(map[string]any)
+	if r["coverage"] != "auth.log" {
+		t.Fatalf("with an auth log the report says so: %v", r["coverage"])
+	}
+	rec := r["recent"].([]map[string]any)
+	if len(rec) != 2 {
+		t.Fatalf("2 logins (a failed one and other programs are not logins): %v", rec)
+	}
+	if rec[0]["user"] != "root" || rec[0]["source"] != "203.0.113.9" || rec[0]["via"] != "publickey" || rec[0]["at"] != int64(1793607838) || rec[0]["ended"] != int64(1793607839) {
+		t.Errorf("a one-second session has its start and its end: %v", rec[0])
+	}
+	if rec[1]["user"] != "alex" || rec[1]["ended"] != nil {
+		t.Errorf("a session still open has no end yet: %v", rec[1])
+	}
+}
+
+func TestTheTraditionalStampAndWtmpAreReadToo(t *testing.T) {
+	resetRecent()
+	root := t.TempDir()
+	write(t, root, "run/systemd/sessions/1", "USER=x\nCLASS=user\nREALTIME=1761900000000000\n")
+	write(t, root, "var/log/auth.log", "Nov  2 09:23:58 host sshd[7]: Accepted publickey for root from 203.0.113.9 port 1 ssh2\n")
+	_, rows := recentLogins(root)
+	if len(rows) != 1 || rows[0].user != "root" || rows[0].at == 0 {
+		t.Fatalf("the stamp without a year is read: %v", rows)
+	}
+
+	resetRecent()
+	root = t.TempDir()
+	rec := func(typ uint32, pid int32, line, user, host string, at uint32) []byte {
+		b := make([]byte, utmpSize)
+		binary.LittleEndian.PutUint32(b[0:4], typ)
+		binary.LittleEndian.PutUint32(b[4:8], uint32(pid))
+		copy(b[8:], line)
+		copy(b[44:], user)
+		copy(b[76:], host)
+		binary.LittleEndian.PutUint32(b[340:], at)
+		return b
+	}
+	write(t, root, "var/log/wtmp", string(append(append(rec(7, 900, "pts/2", "alex", "198.51.100.7", 1761900000), rec(2, 0, "~", "reboot", "", 1761900005)...), rec(8, 900, "pts/2", "", "", 1761900060)...)))
+	level, rows := recentLogins(root)
+	if level != "wtmp" || len(rows) != 1 || rows[0].user != "alex" || rows[0].ended != 1761900060 {
+		t.Errorf("a login and its end from the login history: %s %v", level, rows)
+	}
+	if level, rows := recentLogins(t.TempDir()); level != "snapshot" || rows != nil {
+		t.Errorf("with no log at all it says it only has the snapshot: %s", level)
+	}
+}
+
+func TestEachReadTakesOnlyWhatIsNewAndSurvivesRotationAndFloods(t *testing.T) {
+	resetRecent()
+	root := t.TempDir()
+	line := func(pid int, user string) string {
+		return "2026-11-02T09:23:58+01:00 host sshd[" + strconv.Itoa(pid) + "]: Accepted publickey for " + user + " from 203.0.113.9 port 1 ssh2\n"
+	}
+	write(t, root, "var/log/auth.log", line(1, "a"))
+	_, rows := recentLogins(root)
+	first := recentState.off
+	appendFile(t, root, "var/log/auth.log", line(2, "b"))
+	_, rows = recentLogins(root)
+	if len(rows) != 2 || recentState.off <= first {
+		t.Fatalf("a second read adds only the new line: %v off %d→%d", rows, first, recentState.off)
+	}
+	appendFile(t, root, "var/log/auth.log", "2026-11-02T09:23:58+01:00 host sshd[3]: Accepted publickey for c from 1.1.1.1 port 1 ssh2") // no newline yet
+	if _, rows = recentLogins(root); len(rows) != 2 {
+		t.Errorf("a half-written line waits for the next read: %v", rows)
+	}
+	appendFile(t, root, "var/log/auth.log", "\n")
+	if _, rows = recentLogins(root); len(rows) != 3 {
+		t.Errorf("and is taken once complete: %v", rows)
+	}
+
+	// Rotation: a new, shorter file is read from its start.
+	p := filepath.Join(root, "var/log/auth.log")
+	_ = os.Remove(p)
+	write(t, root, "var/log/auth.log", line(9, "z"))
+	if _, rows = recentLogins(root); rows[len(rows)-1].user != "z" {
+		t.Errorf("a rotated log is read from its start: %v", rows)
+	}
+
+	// A flood: 6 MB of noise is skipped to the last MB, quickly, and the sessions that were found stay.
+	noise := strings.Repeat("2026-11-02T09:23:58+01:00 host sshd[5]: Failed password for invalid user admin from 198.51.100.4 port 22 ssh2\n", 60000)
+	appendFile(t, root, "var/log/auth.log", noise)
+	start := time.Now()
+	_, rows = recentLogins(root)
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("a flooded log must not cost much: %v", took)
+	}
+	info, _ := os.Stat(p)
+	if recentState.off != info.Size() || len(rows) == 0 {
+		t.Errorf("the read ended at the end of the file and kept what it had: off %d size %d rows %d", recentState.off, info.Size(), len(rows))
+	}
+	if len(rows) > maxRecent {
+		t.Errorf("at most %d are kept: %d", maxRecent, len(rows))
+	}
+}

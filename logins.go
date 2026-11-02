@@ -17,7 +17,7 @@ import (
 // USER is skipped, and a machine with no readable session files falls back to utmp.) Where logind is not there (Alpine, containers of their own), the
 // login records in /var/run/utmp are read instead; they are kept by the same programs but can outlive a crash, so logind wins.
 //
-// The report is the set and nothing else: the server tells a new login from a logout by comparing this report with the last one,
+// logins_recent.go adds what the live set cannot see, with the level of coverage it achieved. The live part of the report is the set and nothing else: the server tells a new login from a logout by comparing this report with the last one,
 // and each session's id (tty and start time) stays the same for as long as it lasts, so the same session reported twice is one.
 
 // maxSessions bounds a report: a machine with a login flood reports this many and says it dropped the rest.
@@ -91,6 +91,30 @@ func logins(root string) (any, bool) {
 		rows = append(rows, row)
 	}
 	out["sessions"] = rows
+	// How much of the picture this is: the live set misses a session that begins and ends between two reports, so say what else
+	// was read, and the logins found there (oldest first), each with when it began and, once known, when it ended.
+	coverage, found := recentLogins(root)
+	out["coverage"] = coverage
+	if len(found) > 0 {
+		list := make([]map[string]any, 0, len(found))
+		for _, r := range found {
+			row := map[string]any{"id": strconv.FormatInt(r.at, 10) + "@" + r.user + "@" + r.pid, "user": r.user, "at": r.at}
+			if r.source != "" {
+				row["source"] = r.source
+			}
+			if r.via != "" {
+				row["via"] = r.via
+			}
+			if r.tty != "" {
+				row["tty"] = r.tty
+			}
+			if r.ended > 0 {
+				row["ended"] = r.ended
+			}
+			list = append(list, row)
+		}
+		out["recent"] = list
+	}
 	return out, true
 }
 

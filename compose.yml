@@ -33,5 +33,7 @@ services:
       - /sys/firmware:/host/sys/firmware:ro
       - /var/lib/dpkg/status:/host/var/lib/dpkg/status:ro
       - /run/systemd/sessions:/host/run/systemd/sessions:ro
+      # For short ssh sessions too, add (only where the file exists, or Docker creates a directory of that name on the host):
+      #   - /var/log/auth.log:/host/var/log/auth.log:ro
 volumes:
   beacon-state:
