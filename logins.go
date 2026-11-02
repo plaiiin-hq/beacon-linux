@@ -12,7 +12,9 @@ import (
 // logins: who has a session open on this machine right now, as a flat set. A session is where somebody is logged in: an ssh
 // connection, a console, a desktop. Each one says who (user), from where (source: the remote address of an ssh login, empty at the
 // machine's own keyboard or console), on which terminal (tty) and since when. Nothing is run: systemd-logind keeps one small file
-// per session in /run/systemd/sessions, and those are read. Where logind is not there (Alpine, containers of their own), the
+// per session in /run/systemd/sessions, and those are read. (The files say "private data, do not parse": the keys read here have been
+// stable for years, and a release that changes them makes this field say nothing rather than something wrong: a session without a
+// USER is skipped, and a machine with no readable session files falls back to utmp.) Where logind is not there (Alpine, containers of their own), the
 // login records in /var/run/utmp are read instead; they are kept by the same programs but can outlive a crash, so logind wins.
 //
 // The report is the set and nothing else: the server tells a new login from a logout by comparing this report with the last one,
@@ -27,6 +29,9 @@ const maxName = 64
 type session struct {
 	user, source, tty, kind string
 	since                   int64
+	// no is logind's number for the session (the file's name): the identity of one with no terminal (ssh running a single command),
+	// which would otherwise be told apart from another of the same person only by the second it began in.
+	no string
 }
 
 // clean keeps printable text only and bounds it: a name comes from a file anyone with an account can influence.
@@ -89,7 +94,13 @@ func logins(root string) (any, bool) {
 	return out, true
 }
 
-func sessionID(s session) string { return s.user + "@" + s.tty + "@" + strconv.FormatInt(s.since, 10) }
+func sessionID(s session) string {
+	where := s.tty
+	if where == "" && s.no != "" {
+		where = "#" + s.no
+	}
+	return s.user + "@" + where + "@" + strconv.FormatInt(s.since, 10)
+}
 
 // logindSessions reads /run/systemd/sessions/<id>: KEY=value lines. Only sessions of people count (CLASS=user), and one that is
 // closing is already gone.
@@ -117,7 +128,7 @@ func logindSessions(root string) ([]session, bool) {
 		if kv["USER"] == "" || (kv["CLASS"] != "" && kv["CLASS"] != "user") || kv["STATE"] == "closing" {
 			continue
 		}
-		s := session{user: clean(kv["USER"]), tty: clean(kv["TTY"]), kind: clean(kv["TYPE"])}
+		s := session{user: clean(kv["USER"]), tty: clean(kv["TTY"]), kind: clean(kv["TYPE"]), no: clean(e.Name())}
 		if kv["REMOTE"] == "1" {
 			s.source = clean(kv["REMOTE_HOST"])
 		}

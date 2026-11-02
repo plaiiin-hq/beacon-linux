@@ -594,8 +594,14 @@ func TestLoginsAreTheSessionsLogindKeepsOneIsOneAndAClosingOneIsGone(t *testing.
 	if rows[1]["source"] != "203.0.113.9" || rows[1]["id"] != "martin@pts/0@1761900000" || rows[2]["id"] != "martin@pts/1@1761900100" {
 		t.Errorf("two ssh terminals from one address stay two sessions, each with its own id: %v %v", rows[1], rows[2])
 	}
+	write(t, root, "run/systemd/sessions/20", "UID=0\nUSER=root\nSTATE=active\nCLASS=user\nREMOTE=1\nREMOTE_HOST=198.51.100.2\nREALTIME=1761950000000000\n")
+	write(t, root, "run/systemd/sessions/21", "UID=0\nUSER=root\nSTATE=active\nCLASS=user\nREMOTE=1\nREMOTE_HOST=198.51.100.2\nREALTIME=1761950000000000\n")
+	two, _ := logins(root)
+	if two.(map[string]any)["count"] != 5 {
+		t.Errorf("two sessions without a terminal that began in the same second are still two: %v", two)
+	}
 	again, _ := logins(root)
-	a, _ := json.Marshal(v)
+	a, _ := json.Marshal(two)
 	b, _ := json.Marshal(again)
 	if string(a) != string(b) {
 		t.Error("the same machine reports the same bytes twice, so an unchanged set is an unchanged report")
