@@ -786,3 +786,62 @@ func TestEachReadTakesOnlyWhatIsNewAndSurvivesRotationAndFloods(t *testing.T) {
 		t.Errorf("at most %d are kept: %d", maxRecent, len(rows))
 	}
 }
+
+func TestTheLogReaderWritesOnlyWhatIsConsentedAndTheBeaconBelievesOnlyFreshWellFormedAnswers(t *testing.T) {
+	resetRecent()
+	root := t.TempDir()
+	out := filepath.Join(root, "run/beacon-logs")
+	_ = os.MkdirAll(out, 0o755)
+	write(t, root, "var/log/auth.log", "2026-11-02T09:23:58+01:00 host sshd[7]: Accepted publickey for root from 203.0.113.9 port 1 ssh2\n")
+	now := time.Now()
+
+	// Without consent it reads nothing and leaves nothing.
+	write(t, root, "run/beacon-logs/recent.json", "stale")
+	if err := logwatchOnce(Config{Fields: []string{"kernel"}, Root: root}, out, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "recent.json")); err == nil {
+		t.Error("logins is off: no file is left behind")
+	}
+
+	// With consent it writes the parsed fields, and the Beacon (which cannot read the log) takes them from the file.
+	if err := logwatchOnce(Config{Fields: []string{"logins"}, Root: root}, out, now); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(filepath.Join(out, "recent.json")); info == nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("the answer is readable by the Beacon's account: %v", info)
+	}
+	if err := os.Remove(filepath.Join(root, "var/log/auth.log")); err != nil { // the Beacon's own view: no log at all
+		t.Fatal(err)
+	}
+	cov, rows, ok := recentFromHelper(root, now)
+	if !ok || cov != "auth.log" || len(rows) != 1 || rows[0].user != "root" || rows[0].source != "203.0.113.9" {
+		t.Fatalf("the Beacon reads the reader's answer: %v %v %v", cov, rows, ok)
+	}
+	if c, r := recentLogins(root); c != "auth.log" || len(r) != 1 {
+		t.Errorf("recentLogins prefers the reader's answer over the log it cannot open: %s %v", c, r)
+	}
+
+	// An answer that is old, from the future, malformed or of an unknown kind is not believed.
+	if _, _, ok := recentFromHelper(root, now.Add(10*time.Minute)); ok {
+		t.Error("an answer older than 150 s means the reader stopped: not believed")
+	}
+	write(t, root, "run/beacon-logs/recent.json", `{"at":`+strconv.FormatInt(now.Unix()+3600, 10)+`,"coverage":"auth.log","recent":[]}`)
+	if _, _, ok := recentFromHelper(root, now); ok {
+		t.Error("an answer from the future is not believed")
+	}
+	write(t, root, "run/beacon-logs/recent.json", `{"at":`+strconv.FormatInt(now.Unix(), 10)+`,"coverage":"everything","recent":[]}`)
+	if _, _, ok := recentFromHelper(root, now); ok {
+		t.Error("an unknown coverage is not believed")
+	}
+	write(t, root, "run/beacon-logs/recent.json", "{not json")
+	if _, _, ok := recentFromHelper(root, now); ok {
+		t.Error("malformed is not believed")
+	}
+	// What is believed is cleaned again, and bounded.
+	many := `{"at":` + strconv.FormatInt(now.Unix(), 10) + `,"coverage":"auth.log","recent":[` + strings.Repeat(`{"user":"a\u001b[31m","at":5},`, 100) + `{"user":"z","at":5}]}`
+	write(t, root, "run/beacon-logs/recent.json", many)
+	if _, rows, ok := recentFromHelper(root, now); !ok || len(rows) != maxRecent || strings.Contains(rows[0].user, "\x1b") {
+		t.Errorf("the file comes from another process: cleaned and bounded: %d %q", len(rows), rows[0].user)
+	}
+}

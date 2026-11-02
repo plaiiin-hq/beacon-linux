@@ -28,6 +28,8 @@ const usage = `beacon: report this machine's facts to a plaiiin Status inventory
   beacon leave <server address>         stop reporting to a server
   beacon status                         servers and what each last answered
   beacon run                            send on schedule until stopped (the systemd unit runs this)
+  beacon logwatch                       read sshd's log for the logins field and leave the parsed result for run
+                                        (its own unit runs this, as its own account, with no network)
 
   --config <file>   consent file (default /etc/beacon/beacon.json)
   --state <dir>     key and servers (default $STATE_DIRECTORY or /var/lib/beacon)
@@ -104,6 +106,8 @@ func main() {
 		status(*stateDir)
 	case "run":
 		run(cfg, *stateDir, NewClient())
+	case "logwatch":
+		logwatch(cfg, "/run/beacon-logs")
 	default:
 		fmt.Print(usage)
 		os.Exit(2)

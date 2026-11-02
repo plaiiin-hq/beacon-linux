@@ -13,6 +13,8 @@ contents:
     file_info: { mode: 0755 }
   - src: Bundle/beacon.service
     dst: /usr/lib/systemd/system/beacon.service
+  - src: Bundle/beacon-logwatch.service
+    dst: /usr/lib/systemd/system/beacon-logwatch.service
   - src: Bundle/sysusers.conf
     dst: /usr/lib/sysusers.d/beacon.conf
   - src: Bundle/beacon.json

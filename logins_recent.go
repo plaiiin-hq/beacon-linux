@@ -44,8 +44,16 @@ var recentState struct {
 	entries []recent
 }
 
-// recentLogins returns the coverage level and the logins found, oldest first.
+// recentLogins returns the coverage level and the logins found, oldest first. The confined service takes them from the log reader's
+// file (logwatch.go); a process that may read the logs itself (root at a prompt, a container that mounts them) reads them directly.
 func recentLogins(root string) (string, []recent) {
+	if coverage, rows, ok := recentFromHelper(root, time.Now()); ok {
+		return coverage, rows
+	}
+	return recentFromLogs(root)
+}
+
+func recentFromLogs(root string) (string, []recent) {
 	if rows, ok := readLog(filepath.Join(root, "var/log/auth.log"), parseAuthLog); ok {
 		return "auth.log", rows
 	}
