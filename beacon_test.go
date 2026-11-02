@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -565,5 +567,85 @@ func TestAnotherIdentityIsStillAWrongServerOnAReport(t *testing.T) {
 	}
 	if len(impostor.reports) != 0 {
 		t.Fatal("the impostor received a report")
+	}
+}
+
+func TestLoginsAreTheSessionsLogindKeepsOneIsOneAndAClosingOneIsGone(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "run/systemd/sessions/12", "UID=1000\nUSER=martin\nSTATE=active\nCLASS=user\nTYPE=tty\nREMOTE=1\nREMOTE_HOST=203.0.113.9\nTTY=pts/0\nREALTIME=1761900000000000\n")
+	write(t, root, "run/systemd/sessions/13", "UID=1000\nUSER=martin\nSTATE=online\nCLASS=user\nTYPE=tty\nREMOTE=1\nREMOTE_HOST=203.0.113.9\nTTY=pts/1\nREALTIME=1761900100000000\n")
+	write(t, root, "run/systemd/sessions/c1", "UID=0\nUSER=root\nSTATE=active\nCLASS=user\nTYPE=tty\nREMOTE=0\nTTY=tty1\nREALTIME=1761800000000000\n")
+	write(t, root, "run/systemd/sessions/14", "UID=1000\nUSER=gone\nSTATE=closing\nCLASS=user\nTTY=pts/2\nREALTIME=1761900200000000\n")
+	write(t, root, "run/systemd/sessions/15", "UID=116\nUSER=gdm\nSTATE=active\nCLASS=greeter\nTTY=tty2\nREALTIME=1761900300000000\n")
+	write(t, root, "run/systemd/sessions/12.ref", "x")
+
+	v, ok := logins(root)
+	if !ok {
+		t.Fatal("a logind system answers")
+	}
+	r := v.(map[string]any)
+	rows := r["sessions"].([]map[string]any)
+	if r["count"] != 3 || len(rows) != 3 {
+		t.Fatalf("3 people-sessions are open (a closing one and a greeter are not): %v", r)
+	}
+	if rows[0]["user"] != "root" || rows[0]["source"] != nil || rows[0]["tty"] != "tty1" || rows[0]["since"] != int64(1761800000) {
+		t.Errorf("the console session is first (oldest), has no source: %v", rows[0])
+	}
+	if rows[1]["source"] != "203.0.113.9" || rows[1]["id"] != "martin@pts/0@1761900000" || rows[2]["id"] != "martin@pts/1@1761900100" {
+		t.Errorf("two ssh terminals from one address stay two sessions, each with its own id: %v %v", rows[1], rows[2])
+	}
+	again, _ := logins(root)
+	a, _ := json.Marshal(v)
+	b, _ := json.Marshal(again)
+	if string(a) != string(b) {
+		t.Error("the same machine reports the same bytes twice, so an unchanged set is an unchanged report")
+	}
+}
+
+func TestLoginsFallBackToUtmpAndSayNothingWithoutEitherSource(t *testing.T) {
+	root := t.TempDir()
+	rec := make([]byte, utmpSize)
+	binary.LittleEndian.PutUint32(rec[0:4], 7)
+	copy(rec[8:], "pts/4")
+	copy(rec[44:], "alex")
+	copy(rec[76:], "198.51.100.7")
+	binary.LittleEndian.PutUint32(rec[340:], 1761900000)
+	dead := make([]byte, utmpSize)
+	binary.LittleEndian.PutUint32(dead[0:4], 8) // DEAD_PROCESS
+	copy(dead[44:], "old")
+	write(t, root, "var/run/utmp", string(append(append([]byte{}, dead...), rec...)))
+
+	v, ok := logins(root)
+	if !ok {
+		t.Fatal("utmp answers when logind is not there")
+	}
+	rows := v.(map[string]any)["sessions"].([]map[string]any)
+	if len(rows) != 1 || rows[0]["user"] != "alex" || rows[0]["source"] != "198.51.100.7" || rows[0]["tty"] != "pts/4" || rows[0]["since"] != int64(1761900000) {
+		t.Errorf("only the login record counts: %v", rows)
+	}
+	if _, ok := logins(t.TempDir()); ok {
+		t.Error("no source at all says nothing, rather than \"nobody\"")
+	}
+	write(t, root, "var/run/utmp", "not a utmp file")
+	if _, ok := logins(root); ok {
+		t.Error("a file of another shape says nothing")
+	}
+}
+
+func TestALoginFloodIsBoundedAndNamesAreCleaned(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < maxSessions+20; i++ {
+		write(t, root, "run/systemd/sessions/"+strconv.Itoa(i+1), "USER=u"+strconv.Itoa(i)+"\nCLASS=user\nTTY=pts/"+strconv.Itoa(i)+"\nREALTIME="+strconv.Itoa(1761900000+i)+"000000\n")
+	}
+	v, _ := logins(root)
+	r := v.(map[string]any)
+	if r["count"] != maxSessions+20 || r["truncated"] != true || len(r["sessions"].([]map[string]any)) != maxSessions {
+		t.Errorf("the count is true, the rows are bounded, and it says it dropped some: count=%v truncated=%v", r["count"], r["truncated"])
+	}
+	if got := clean("a\x1b[31mb\nc" + strings.Repeat("x", 200)); strings.ContainsAny(got, "\x1b\n") || len(got) > maxName {
+		t.Errorf("control characters are dropped and the length bounded: %q", got)
+	}
+	if !Identifying["logins"] {
+		t.Error("who is logged in names people: it is marked as identifying")
 	}
 }

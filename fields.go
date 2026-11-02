@@ -209,7 +209,7 @@ func dpkgPackages(root string) (any, bool) {
 
 // Identifying marks the fields that name this particular machine, not just its kind: a list shows them so an admin
 // can leave them off and still report the rest.
-var Identifying = map[string]bool{"hostname": true, "network": true, "packages": true, "model": true}
+var Identifying = map[string]bool{"hostname": true, "network": true, "packages": true, "model": true, "logins": true}
 
 // Fields is everything this reporter can read, in the order `beacon fields` lists it.
 var Fields = []Field{
@@ -235,6 +235,7 @@ var Fields = []Field{
 	{"secure_boot", "Secure Boot", "/sys/firmware/efi/efivars/SecureBoot-*", secureBoot},
 	{"packages", "Installed packages", "/var/lib/dpkg/status", dpkgPackages},
 	{"updates", "Updates waiting", "security updates (apt's security lists against dpkg), pending count, reboot needed; nothing is run", updates},
+	{"logins", "Logged in", "who has a session open, from where and since when: /run/systemd/sessions (else /var/run/utmp)", logins},
 }
 
 // Report reads exactly the enabled fields. A field that cannot be read on this machine is left out.

@@ -32,5 +32,6 @@ services:
       - /sys/block:/host/sys/block:ro
       - /sys/firmware:/host/sys/firmware:ro
       - /var/lib/dpkg/status:/host/var/lib/dpkg/status:ro
+      - /run/systemd/sessions:/host/run/systemd/sessions:ro
 volumes:
   beacon-state:
