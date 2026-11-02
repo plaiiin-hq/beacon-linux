@@ -1,0 +1,85 @@
+# plaiiin Beacon's log reader: reads sshd's log for the "logins" field and leaves only the parsed result (who, from where, when) in
+# /run/beacon-logs/recent.json for the Beacon to pick up. It is a separate process on purpose: the Beacon has the network and
+# cannot read /var/log at all; this one can read the log and has no network at all, so neither can do what the other can.
+#
+# It reads nothing until an admin has switched the logins field on (sudo beacon enable logins); with it off it idles and removes its file.
+# Check the confinement with `systemd-analyze security beacon-logwatch.service`.
+[Unit]
+Description=plaiiin Beacon log reader (sshd logins for the inventory)
+Documentation=https://github.com/plaiiin-hq/App-Status/tree/main/Beacon/Linux
+After=beacon.service
+
+[Service]
+Type=simple
+User=beacon-logs
+Group=beacon-logs
+# adm is the group that may read auth.log on Debian and Ubuntu. Elsewhere the file is root's alone; the reader then finds nothing and the
+# report says "snapshot" rather than pretending.
+SupplementaryGroups=adm
+ExecStart=/usr/bin/beacon logwatch --config /etc/beacon/beacon.json
+Restart=on-failure
+RestartSec=30
+
+# Its one output, readable by the Beacon's account.
+RuntimeDirectory=beacon-logs
+RuntimeDirectoryMode=0755
+UMask=0022
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+
+# No network of any kind.
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# /var/log is an empty read-only view with the two files this reads; /etc has the consent file and the time zone (older log lines
+# carry no zone) and nothing else.
+TemporaryFileSystem=/etc:ro /var/log:ro
+BindReadOnlyPaths=-/etc/beacon -/etc/localtime -/etc/timezone -/var/log/auth.log -/var/log/wtmp
+InaccessiblePaths=-/root -/boot -/srv -/opt -/mnt -/media -/var/mail -/var/spool -/var/backups -/var/cache -/var/tmp -/var/lib/private -/var/lib/docker -/var/lib/containers -/run/user -/run/docker.sock -/run/containerd -/run/dbus -/run/systemd/private
+
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+CPUWeight=1
+IOWeight=1
+MemoryMax=32M
+MemorySwapMax=0
+OOMPolicy=stop
+CPUQuota=25%
+TasksMax=8
+LimitNOFILE=32
+LimitFSIZE=2M
+LimitCORE=0
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=50
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+# Starts no program but its own binary; ordinary service calls only, a refused call fails with EPERM instead of killing it (as in
+# beacon.service, where @resources stays allowed because Go raises its open-file limit at start).
+NoExecPaths=/
+ExecPaths=/usr/bin/beacon
+SystemCallArchitectures=native
+SystemCallErrorNumber=EPERM
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @debug @cpu-emulation @obsolete @raw-io @reboot @swap
+SystemCallFilter=~fork vfork
+
+[Install]
+WantedBy=multi-user.target
